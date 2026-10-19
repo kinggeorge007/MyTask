@@ -1,73 +1,30 @@
-# MiniTask Desktop (Windows)
+# MiniTask Desktop v2 (Windows)
 
-A small, free floating task widget for Windows. It uses Python's built-in Tkinter library and stores tasks locally on your PC.
+Free floating task widget for Windows 10/11. It uses Python's built-in Tkinter and stores tasks locally.
 
-## Features in this first version
+## Run from source
+1. Install Python from https://www.python.org/downloads/windows/ and tick **Add python.exe to PATH**.
+2. Open this folder in File Explorer, type `cmd` in the address bar, press Enter.
+3. Run `python main.py` (or `py main.py`).
 
-- Floating always-on-top button
-- Number of unfinished tasks displayed on the button
-- Circular progress ring showing completed-task percentage
-- Click and drag the widget to move it
-- Add, complete, and delete tasks
-- Tasks saved locally between launches
-- Right-click menu for opening tasks, adding a task, or quitting
+## Controls
+- Left-click widget: open task panel.
+- Drag widget: move it around the screen.
+- Right-click widget: menu.
+- Center number: unfinished tasks.
+- Green circular arc: percentage of tasks completed.
+- Right-click → **Start with Windows** toggles automatic startup.
 
-## Requirements
+## Build standalone EXE
+1. Python and internet are needed for the one-time build.
+2. Double-click `build_exe.bat`.
+3. The result is `dist\MiniTask.exe`.
+4. Copy the EXE to a permanent folder, such as `Documents\MiniTask\MiniTask.exe`.
+5. Run it and right-click the widget → **Start with Windows**. Do not move/delete the EXE after enabling startup unless you disable and re-enable the setting.
 
-- Windows 10 or Windows 11
-- Python 3.10+ (Python 3.12 or 3.13 is fine)
-- No paid service, server, API key, or third-party Python package
+PyInstaller is free. The finished EXE does not require Python on the target PC.
 
-## Run it
+## Data
+Tasks are stored locally at `%APPDATA%\MiniTask\tasks.json`. Nothing is uploaded online.
 
-1. Install Python from https://www.python.org/downloads/windows/
-2. During setup, tick **Add python.exe to PATH**.
-3. Download this repository as a ZIP or clone it.
-4. Open the project folder in File Explorer.
-5. Click the address bar, type `cmd`, and press Enter.
-6. In the terminal, run:
-
-   ```bat
-   python main.py
-   ```
-
-   If that command is not recognized, try:
-
-   ```bat
-   py main.py
-   ```
-
-The floating widget should appear on your desktop. Left-click it to open the task panel; drag it to move it. Right-click it for the menu.
-
-## Where are tasks saved?
-
-On Windows, tasks are stored at:
-
-`%APPDATA%\MiniTask\tasks.json`
-
-This is normally a path like `C:\Users\YourName\AppData\Roaming\MiniTask\tasks.json`.
-
-The task file is local to your Windows user account and is not uploaded anywhere.
-
-## Put the files on GitHub
-
-1. Create a free GitHub repository, for example `minitask-desktop`.
-2. Choose **Add file → Upload files**.
-3. Upload `main.py`, `README.md`, and `.gitignore` from this project.
-4. Click **Commit changes**.
-
-Do not upload your personal `tasks.json` file if you later find one; it contains your private task list.
-
-## Troubleshooting
-
-- **Python is not recognized:** reinstall Python and tick **Add python.exe to PATH**, or use `py main.py`.
-- **Widget appears as a square:** Windows transparency support can vary by desktop setup. The app still works; right-click the widget if clicking is difficult.
-- **Widget does not open:** run it from Command Prompt with `python main.py` so you can see any error message.
-- **Closing:** right-click the floating widget and choose **Quit MiniTask**.
-
-## Next improvements (after the first version works)
-
-- Start automatically when Windows starts
-- Settings and theme choices
-- Reminders and due dates
-- Package as a standalone `.exe` so Python does not need to be installed on the target PC
+Upload `main.py`, `build_exe.bat`, `README.md`, and `.gitignore` to GitHub. Do not upload personal task data or build output.

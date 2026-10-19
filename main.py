@@ -1,280 +1,95 @@
-import json
-import os
-import sys
-import tkinter as tk
-from tkinter import messagebox, simpledialog
+import json, os, sys, tkinter as tk
 from pathlib import Path
-
-APP_NAME = "MiniTask"
-BG_KEY = "#ff00ff"  # Windows transparent-color key for the floating window
-ACCENT = "#62d6a8"
-TRACK = "#39414d"
-TEXT = "#f4f6f8"
-MUTED = "#aeb7c2"
-PANEL = "#202630"
-ROW = "#2a323e"
-
-
-def data_file():
-    """Store tasks in the user's AppData folder, not beside the program."""
-    if os.name == "nt":
-        folder = Path(os.environ.get("APPDATA", str(Path.home()))) / APP_NAME
-    else:
-        folder = Path.home() / f".{APP_NAME.lower()}"
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder / "tasks.json"
-
-
+from tkinter import messagebox, simpledialog
+APP='MiniTask'; KEY='#ff00ff'; GREEN='#63e6be'; TRACK='#465362'; TEXT='#f5f7fa'; MUTED='#aeb9c6'; PANEL='#1e2631'; ROW='#293442'
+def appdir():
+    p=Path(os.environ.get('APPDATA',str(Path.home()))) / ('MiniTask' if os.name=='nt' else '.minitask'); p.mkdir(parents=True,exist_ok=True); return p
+def startup_path():
+    a=os.environ.get('APPDATA')
+    return Path(a)/'Microsoft/Windows/Start Menu/Programs/Startup/MiniTask Startup.vbs' if a else None
+def frozen(): return bool(getattr(sys,'frozen',False))
+def startup_command():
+    if frozen(): return f'"{Path(sys.executable).resolve()}"'
+    p=Path(sys.executable).with_name('pythonw.exe')
+    if not p.exists(): p=Path(sys.executable)
+    return f'"{p.resolve()}" "{Path(__file__).resolve()}"'
+def set_startup(on):
+    p=startup_path()
+    if not p: raise RuntimeError('Windows Startup folder could not be found.')
+    if on:
+        p.parent.mkdir(parents=True,exist_ok=True); cmd=startup_command().replace('"','""')
+        p.write_text('Set shell = CreateObject("WScript.Shell")\n' + f'shell.Run "{cmd}", 0, False\n',encoding='utf-8')
+    elif p.exists(): p.unlink()
 class MiniTask:
-    def __init__(self):
-        self.path = data_file()
-        self.tasks = self.load_tasks()
-        self.panel = None
-        self.task_list_frame = None
-        self.count_label = None
-        self.progress_canvas = None
-        self.widget_size = 78
-        self.drag_origin = None
-
-        self.floating = tk.Tk()
-        self.floating.title(APP_NAME)
-        self.floating.overrideredirect(True)
-        self.floating.attributes("-topmost", True)
-        self.floating.configure(bg=BG_KEY)
-
-        # On Windows, hide the transparent-color pixels around the circular widget.
-        if sys.platform == "win32":
-            try:
-                self.floating.wm_attributes("-transparentcolor", BG_KEY)
-            except tk.TclError:
-                pass
-
-        screen_w = self.floating.winfo_screenwidth()
-        screen_h = self.floating.winfo_screenheight()
-        self.floating.geometry(f"{self.widget_size}x{self.widget_size}+{screen_w - 115}+{screen_h // 2}")
-
-        self.canvas = tk.Canvas(
-            self.floating, width=self.widget_size, height=self.widget_size,
-            bg=BG_KEY, highlightthickness=0, bd=0
-        )
-        self.canvas.pack()
-        self.draw_floating_button()
-        self.canvas.bind("<ButtonPress-1>", self.start_drag)
-        self.canvas.bind("<B1-Motion>", self.drag)
-        self.canvas.bind("<ButtonRelease-1>", self.end_drag)
-        self.canvas.bind("<Button-3>", self.show_context_menu)
-
-        self.menu = tk.Menu(self.floating, tearoff=0)
-        self.menu.add_command(label="Open tasks", command=self.open_panel)
-        self.menu.add_command(label="Add task", command=self.add_task_dialog)
-        self.menu.add_separator()
-        self.menu.add_command(label="Quit MiniTask", command=self.quit)
-
-        self.floating.mainloop()
-
-    def load_tasks(self):
-        try:
-            with self.path.open("r", encoding="utf-8") as file:
-                data = json.load(file)
-            if isinstance(data, list):
-                return [
-                    {"title": str(item.get("title", "Untitled task")),
-                     "done": bool(item.get("done", False))}
-                    for item in data if isinstance(item, dict)
-                ]
-        except (OSError, json.JSONDecodeError):
-            pass
-        return []
-
-    def save_tasks(self):
-        try:
-            with self.path.open("w", encoding="utf-8") as file:
-                json.dump(self.tasks, file, indent=2, ensure_ascii=False)
-        except OSError as exc:
-            messagebox.showerror(APP_NAME, f"Could not save tasks:\n{exc}")
-
-    def draw_floating_button(self):
-        c = self.canvas
-        c.delete("all")
-        size = self.widget_size
-        pad = 7
-        c.create_oval(pad, pad, size-pad, size-pad, fill=TRACK, outline="")
-        total = len(self.tasks)
-        done = sum(1 for task in self.tasks if task["done"])
-        ratio = (done / total) if total else 0
-        # Arc starts at 12 o'clock and grows clockwise.
-        if total:
-            c.create_arc(
-                pad, pad, size-pad, size-pad, start=90, extent=-359.9 * ratio,
-                style="arc", outline=ACCENT, width=5
-            )
-        else:
-            c.create_oval(pad+2, pad+2, size-pad-2, size-pad-2,
-                          outline=ACCENT, width=3)
-        c.create_oval(15, 15, size-15, size-15, fill=PANEL, outline="")
-        remaining = total - done
-        c.create_text(size/2, size/2-3, text=str(remaining), fill=TEXT,
-                      font=("Segoe UI", 19, "bold"))
-        c.create_text(size/2, size/2+18, text="TASKS", fill=MUTED,
-                      font=("Segoe UI", 7, "bold"))
-        self.floating.update_idletasks()
-
-    def start_drag(self, event):
-        self.drag_origin = (event.x_root, event.y_root,
-                            self.floating.winfo_x(), self.floating.winfo_y())
-
-    def drag(self, event):
-        if not self.drag_origin:
-            return
-        x0, y0, win_x, win_y = self.drag_origin
-        dx, dy = event.x_root - x0, event.y_root - y0
-        self.floating.geometry(f"+{win_x + dx}+{win_y + dy}")
-
-    def end_drag(self, event):
-        if not self.drag_origin:
-            return
-        x0, y0, _, _ = self.drag_origin
-        moved = abs(event.x_root - x0) + abs(event.y_root - y0)
-        self.drag_origin = None
-        if moved < 5:
-            self.open_panel()
-
-    def show_context_menu(self, event):
-        try:
-            self.menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self.menu.grab_release()
-
-    def open_panel(self):
-        if self.panel and self.panel.winfo_exists():
-            self.panel.deiconify()
-            self.panel.lift()
-            self.panel.focus_force()
-            self.refresh_task_list()
-            return
-
-        self.panel = tk.Toplevel(self.floating)
-        self.panel.title("MiniTask — My Tasks")
-        self.panel.geometry("360x470")
-        self.panel.minsize(320, 380)
-        self.panel.configure(bg=PANEL)
-        self.panel.attributes("-topmost", True)
-        self.panel.protocol("WM_DELETE_WINDOW", self.panel.withdraw)
-
-        header = tk.Frame(self.panel, bg=PANEL, padx=18, pady=16)
-        header.pack(fill="x")
-        tk.Label(header, text="My Tasks", bg=PANEL, fg=TEXT,
-                 font=("Segoe UI", 18, "bold")).pack(anchor="w")
-        self.count_label = tk.Label(header, text="", bg=PANEL, fg=MUTED,
-                                    font=("Segoe UI", 9))
-        self.count_label.pack(anchor="w", pady=(3, 0))
-
-        add_row = tk.Frame(self.panel, bg=PANEL, padx=18)
-        add_row.pack(fill="x", pady=(0, 12))
-        self.new_task_entry = tk.Entry(
-            add_row, bg=ROW, fg=TEXT, insertbackground=TEXT,
-            relief="flat", font=("Segoe UI", 10)
-        )
-        self.new_task_entry.pack(side="left", fill="x", expand=True, ipady=9, padx=(0, 8))
-        self.new_task_entry.bind("<Return>", lambda _event: self.add_task_from_entry())
-        tk.Button(add_row, text="＋", command=self.add_task_from_entry,
-                  bg=ACCENT, fg="#14221c", activebackground=ACCENT,
-                  relief="flat", font=("Segoe UI", 13, "bold"), width=3,
-                  cursor="hand2").pack(side="right")
-
-        self.task_list_frame = tk.Frame(self.panel, bg=PANEL, padx=18)
-        self.task_list_frame.pack(fill="both", expand=True)
-
-        footer = tk.Frame(self.panel, bg=PANEL, padx=18, pady=12)
-        footer.pack(fill="x")
-        tk.Button(footer, text="Clear completed", command=self.clear_completed,
-                  bg=ROW, fg=TEXT, activebackground=ROW, activeforeground=TEXT,
-                  relief="flat", padx=10, pady=7, cursor="hand2").pack(side="left")
-        tk.Label(footer, text="Saved on this PC", bg=PANEL, fg=MUTED,
-                 font=("Segoe UI", 8)).pack(side="right")
-
-        self.refresh_task_list()
-        self.new_task_entry.focus_set()
-
-    def add_task_dialog(self):
-        title = simpledialog.askstring(APP_NAME, "What do you need to do?", parent=self.floating)
-        if title and title.strip():
-            self.tasks.append({"title": title.strip(), "done": False})
-            self.save_tasks()
-            self.draw_floating_button()
-            self.refresh_task_list()
-
-    def add_task_from_entry(self):
-        if not self.panel or not self.panel.winfo_exists():
-            return
-        title = self.new_task_entry.get().strip()
-        if not title:
-            return
-        self.tasks.append({"title": title, "done": False})
-        self.new_task_entry.delete(0, "end")
-        self.save_tasks()
-        self.draw_floating_button()
-        self.refresh_task_list()
-
-    def toggle_task(self, index):
-        self.tasks[index]["done"] = not self.tasks[index]["done"]
-        self.save_tasks()
-        self.draw_floating_button()
-        self.refresh_task_list()
-
-    def delete_task(self, index):
-        del self.tasks[index]
-        self.save_tasks()
-        self.draw_floating_button()
-        self.refresh_task_list()
-
-    def clear_completed(self):
-        self.tasks = [task for task in self.tasks if not task["done"]]
-        self.save_tasks()
-        self.draw_floating_button()
-        self.refresh_task_list()
-
-    def refresh_task_list(self):
-        if not self.panel or not self.panel.winfo_exists() or not self.task_list_frame:
-            return
-        for child in self.task_list_frame.winfo_children():
-            child.destroy()
-
-        total = len(self.tasks)
-        done = sum(1 for task in self.tasks if task["done"])
-        if self.count_label and self.count_label.winfo_exists():
-            self.count_label.config(text=f"{done} of {total} completed  •  {total-done} remaining")
-
-        if not self.tasks:
-            tk.Label(self.task_list_frame, text="No tasks yet.\nAdd one above to get started.",
-                     bg=PANEL, fg=MUTED, justify="center",
-                     font=("Segoe UI", 10)).pack(expand=True, pady=35)
-            return
-
-        for index, task in enumerate(self.tasks):
-            row = tk.Frame(self.task_list_frame, bg=ROW, padx=8, pady=7)
-            row.pack(fill="x", pady=4)
-            checked = tk.BooleanVar(value=task["done"])
-            cb = tk.Checkbutton(
-                row, variable=checked, command=lambda i=index: self.toggle_task(i),
-                bg=ROW, activebackground=ROW, selectcolor=PANEL,
-                fg=ACCENT, activeforeground=ACCENT, relief="flat",
-                highlightthickness=0
-            )
-            cb.pack(side="left")
-            title_color = MUTED if task["done"] else TEXT
-            title_font = ("Segoe UI", 9, "overstrike") if task["done"] else ("Segoe UI", 9)
-            label = tk.Label(row, text=task["title"], bg=ROW, fg=title_color,
-                             font=title_font, anchor="w", justify="left", wraplength=230)
-            label.pack(side="left", fill="x", expand=True, padx=(4, 5))
-            tk.Button(row, text="×", command=lambda i=index: self.delete_task(i),
-                      bg=ROW, fg=MUTED, activebackground=ROW, activeforeground=TEXT,
-                      relief="flat", font=("Segoe UI", 12), cursor="hand2").pack(side="right")
-
-    def quit(self):
-        if messagebox.askyesno(APP_NAME, "Close MiniTask? Your tasks are saved on this PC."):
-            self.floating.destroy()
-
-
-if __name__ == "__main__":
-    MiniTask()
+ def __init__(self):
+    self.file=appdir()/'tasks.json'; self.tasks=self.load(); self.panel=None; self.frame=None; self.drag=None; self.moved=False; self.size=84
+    self.root=tk.Tk(); self.root.title(APP); self.root.overrideredirect(True); self.root.attributes('-topmost',True); self.root.configure(bg=KEY); self.root.resizable(False,False)
+    if sys.platform=='win32':
+     try: self.root.wm_attributes('-transparentcolor',KEY)
+     except tk.TclError: pass
+    sw,sh=self.root.winfo_screenwidth(),self.root.winfo_screenheight(); self.root.geometry(f'{self.size}x{self.size}+{sw-125}+{max(25,sh//2)}')
+    self.canvas=tk.Canvas(self.root,width=self.size,height=self.size,bg=KEY,highlightthickness=0,bd=0); self.canvas.pack(); self.draw()
+    self.canvas.bind('<ButtonPress-1>',self.press); self.canvas.bind('<B1-Motion>',self.motion); self.canvas.bind('<ButtonRelease-1>',self.release); self.canvas.bind('<Button-3>',self.menu)
+    self.m=tk.Menu(self.root,tearoff=0); self.m.add_command(label='Open tasks',command=self.open); self.m.add_command(label='Add task',command=self.add_dialog); self.m.add_separator(); self.start_var=tk.BooleanVar(value=bool(startup_path() and startup_path().exists())); self.m.add_checkbutton(label='Start with Windows',variable=self.start_var,command=self.start_toggle); self.m.add_separator(); self.m.add_command(label='Quit MiniTask',command=self.quit)
+    self.root.mainloop()
+ def load(self):
+    try:
+     d=json.loads(self.file.read_text(encoding='utf-8')); return [{'title':str(x.get('title','Untitled task')),'done':bool(x.get('done',False))} for x in d if isinstance(x,dict)] if isinstance(d,list) else []
+    except (OSError,ValueError,TypeError): return []
+ def save(self):
+    try: self.file.write_text(json.dumps(self.tasks,indent=2,ensure_ascii=False),encoding='utf-8')
+    except OSError as e: messagebox.showerror(APP,f'Could not save tasks:\n{e}')
+ def draw(self):
+    c=self.canvas;c.delete('all');s=self.size;pad=7;box=(pad,pad,s-pad,s-pad);total=len(self.tasks);done=sum(t['done'] for t in self.tasks);left=total-done
+    c.create_oval(*box,fill='#293440',outline='')
+    c.create_arc(*box,start=90,extent=-359.9,style='arc',outline=TRACK,width=5)
+    if total and done: c.create_arc(*box,start=90,extent=-359.9*done/total,style='arc',outline=GREEN,width=5)
+    if not total: c.create_oval(pad+3,pad+3,s-pad-3,s-pad-3,outline=GREEN,width=2)
+    c.create_oval(16,16,s-16,s-16,fill=PANEL,outline='')
+    c.create_text(s/2,s/2-5,text=str(left),fill=TEXT,font=('Segoe UI',19,'bold'))
+    c.create_text(s/2,s/2+16,text='LEFT',fill=MUTED,font=('Segoe UI',7,'bold'))
+    if total and left==0: c.create_oval(s-24,10,s-12,22,fill=GREEN,outline=PANEL,width=2)
+ def press(self,e): self.drag=(e.x_root,e.y_root,self.root.winfo_x(),self.root.winfo_y());self.moved=False
+ def motion(self,e):
+    if not self.drag:return
+    x0,y0,wx,wy=self.drag;dx=e.x_root-x0;dy=e.y_root-y0
+    if abs(dx)+abs(dy)>5:self.moved=True
+    if self.moved:
+     sw,sh=self.root.winfo_screenwidth(),self.root.winfo_screenheight();x=max(0,min(sw-self.size,wx+dx));y=max(0,min(sh-self.size,wy+dy));self.root.geometry(f'+{x}+{y}')
+ def release(self,e):
+    was=self.moved;self.drag=None;self.moved=False
+    if not was:self.open()
+ def menu(self,e):
+    self.start_var.set(bool(startup_path() and startup_path().exists()))
+    try:self.m.tk_popup(e.x_root,e.y_root)
+    finally:self.m.grab_release()
+ def start_toggle(self):
+    on=bool(self.start_var.get())
+    try:set_startup(on)
+    except Exception as e:self.start_var.set(not on);messagebox.showerror(APP,f'Could not change startup setting:\n{e}')
+    self.start_var.set(bool(startup_path() and startup_path().exists()))
+ def open(self):
+    if self.panel and self.panel.winfo_exists():self.panel.deiconify();self.panel.lift();self.refresh();return
+    self.panel=tk.Toplevel(self.root);self.panel.title('MiniTask — My Tasks');self.panel.geometry('380x500');self.panel.minsize(320,380);self.panel.configure(bg=PANEL);self.panel.attributes('-topmost',True);self.panel.protocol('WM_DELETE_WINDOW',self.panel.withdraw)
+    head=tk.Frame(self.panel,bg=PANEL,padx=18,pady=16);head.pack(fill='x');tk.Label(head,text='My Tasks',bg=PANEL,fg=TEXT,font=('Segoe UI',18,'bold')).pack(anchor='w');self.count=tk.Label(head,text='',bg=PANEL,fg=MUTED,font=('Segoe UI',9));self.count.pack(anchor='w',pady=(3,0))
+    add=tk.Frame(self.panel,bg=PANEL,padx=18);add.pack(fill='x',pady=(0,12));self.entry=tk.Entry(add,bg=ROW,fg=TEXT,insertbackground=TEXT,relief='flat',font=('Segoe UI',10));self.entry.pack(side='left',fill='x',expand=True,ipady=9,padx=(0,8));self.entry.bind('<Return>',lambda e:self.add_entry());tk.Button(add,text='+',command=self.add_entry,bg=GREEN,fg='#14221c',relief='flat',font=('Segoe UI',13,'bold'),width=3).pack(side='right')
+    self.frame=tk.Frame(self.panel,bg=PANEL,padx=18);self.frame.pack(fill='both',expand=True);foot=tk.Frame(self.panel,bg=PANEL,padx=18,pady=12);foot.pack(fill='x');tk.Button(foot,text='Clear completed',command=self.clear,bg=ROW,fg=TEXT,relief='flat',padx=10,pady=7).pack(side='left');tk.Label(foot,text='Saved on this PC',bg=PANEL,fg=MUTED,font=('Segoe UI',8)).pack(side='right');self.refresh();self.entry.focus_set()
+ def add_dialog(self):
+    title=simpledialog.askstring(APP,'What do you need to do?',parent=self.root)
+    if title and title.strip():self.tasks.append({'title':title.strip(),'done':False});self.save();self.draw();self.refresh()
+ def add_entry(self):
+    title=self.entry.get().strip()
+    if title:self.tasks.append({'title':title,'done':False});self.entry.delete(0,'end');self.save();self.draw();self.refresh()
+ def toggle(self,i):self.tasks[i]['done']=not self.tasks[i]['done'];self.save();self.draw();self.refresh()
+ def delete(self,i):del self.tasks[i];self.save();self.draw();self.refresh()
+ def clear(self):self.tasks=[t for t in self.tasks if not t['done']];self.save();self.draw();self.refresh()
+ def refresh(self):
+    if not self.panel or not self.panel.winfo_exists():return
+    for w in self.frame.winfo_children():w.destroy()
+    total=len(self.tasks);done=sum(t['done'] for t in self.tasks);self.count.config(text=f'{done} of {total} completed  •  {total-done} remaining')
+    if not total:tk.Label(self.frame,text='No tasks yet.\nAdd one above to get started.',bg=PANEL,fg=MUTED,justify='center').pack(expand=True,pady=35);return
+    for i,t in enumerate(self.tasks):
+     row=tk.Frame(self.frame,bg=ROW,padx=8,pady=7);row.pack(fill='x',pady=4);v=tk.BooleanVar(value=t['done']);tk.Checkbutton(row,variable=v,command=lambda j=i:self.toggle(j),bg=ROW,activebackground=ROW,selectcolor=PANEL,fg=GREEN,relief='flat',highlightthickness=0).pack(side='left');color=MUTED if t['done'] else TEXT;font=('Segoe UI',9,'overstrike') if t['done'] else ('Segoe UI',9);tk.Label(row,text=t['title'],bg=ROW,fg=color,font=font,anchor='w',justify='left',wraplength=240).pack(side='left',fill='x',expand=True,padx=(4,5));tk.Button(row,text='×',command=lambda j=i:self.delete(j),bg=ROW,fg=MUTED,relief='flat',font=('Segoe UI',12)).pack(side='right')
+ def quit(self):
+    if messagebox.askyesno(APP,'Close MiniTask? Your tasks are saved on this PC.'):self.root.destroy()
+if __name__=='__main__':MiniTask()
